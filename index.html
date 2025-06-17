@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Klien Driver (GPS & Log)</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f0f2f5; margin: 0; }
+        .container { text-align: center; padding: 30px; background: white; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 90%; max-width: 400px; }
+        #status { margin-bottom: 20px; font-weight: bold; padding: 10px; border-radius: 5px; }
+        .connected { color: #155724; background-color: #d4edda; }
+        .disconnected { color: #721c24; background-color: #f8d7da; }
+        .input-group { margin-bottom: 15px; text-align: left; }
+        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
+        .input-group input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        .button-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+        button { font-size: 16px; padding: 12px; cursor: pointer; border: none; color: white; border-radius: 5px; transition: background-color 0.3s; }
+        #send-location-btn { background-color: #007bff; }
+        #send-location-btn:hover { background-color: #0056b3; }
+        #gps-btn { background-color: #28a745; }
+        #gps-btn:hover { background-color: #218838; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        #log-container { margin-top: 20px; text-align: left; }
+        #log-container h3 { margin-top: 0; margin-bottom: 5px; font-size: 1em; color: #333; }
+        #log-list { list-style: none; padding: 10px; margin: 0; height: 120px; overflow-y: auto; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; }
+        .log-item { padding: 2px 0; border-bottom: 1px dotted #e0e0e0; }
+        .log-item.sent { color: #0056b3; }
+        .log-item.info { color: #155724; }
+        .log-item.error { color: #721c24; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Aplikasi Klien Driver</h1>
+        <div id="status" class="disconnected">Terputus</div>
+        
+        <div class="input-group">
+            <label for="lat-input">Latitude</label>
+            <input type="number" id="lat-input" step="any" placeholder="Contoh: -6.2087">
+        </div>
+        <div class="input-group">
+            <label for="lon-input">Longitude</label>
+            <input type="number" id="lon-input" step="any" placeholder="Contoh: 106.8456">
+        </div>
+
+        <div class="button-group">
+            <button id="gps-btn">Gunakan Lokasi GPS</button>
+            <button id="send-location-btn" disabled>Kirim Lokasi</button>
+        </div>
+        
+        <div id="log-container">
+            <h3>Log Aktivitas</h3>
+            <ul id="log-list"></ul>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        // ============== KONFIGURASI ==============
+        const serverUrl = "http://35.219.117.53"; // Ganti dengan URL server Anda
+        const driverToken = "Bearer eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IlNhbnRvc29AZXhhbXBsZS5jb20iLCJyb3V0ZSI6IjA1IiwiaWQiOjksImlhdCI6MTc1MDA5OTk5MywiZXhwIjoxNzUyNjkxOTkzfQ.1Sq3SQCybrd42OyShklqyDni5W83RlnpX9kljINLPLztFrPZyK8Ksmou_sp6WLOl";
+        // =======================================
+
+        const statusEl = document.getElementById('status');
+        const sendBtn = document.getElementById('send-location-btn');
+        const gpsBtn = document.getElementById('gps-btn');
+        const logListEl = document.getElementById('log-list');
+        const latInput = document.getElementById('lat-input');
+        const lonInput = document.getElementById('lon-input');
+
+        // Fungsi baru untuk menambahkan log ke panel
+        function addLog(message, type = 'info') {
+            const item = document.createElement('li');
+            item.className = `log-item ${type}`;
+            item.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logListEl.prepend(item); // prepend agar log baru muncul di atas
+        }
+
+        // Hubungkan ke namespace '/driver'
+        const socket = io(serverUrl + "/driver");
+
+        socket.on('connect', () => {
+            statusEl.textContent = 'Terhubung ke Server';
+            statusEl.className = 'connected';
+            sendBtn.disabled = false;
+            addLog('Koneksi berhasil dibuat.', 'info');
+        });
+
+        socket.on('disconnect', () => {
+            statusEl.textContent = 'Terputus';
+            statusEl.className = 'disconnected';
+            sendBtn.disabled = true;
+            addLog('Koneksi terputus.', 'error');
+        });
+
+        // Event listener untuk tombol GPS
+        gpsBtn.addEventListener('click', () => {
+            if (!navigator.geolocation) {
+                const msg = "Geolocation tidak didukung oleh browser Anda.";
+                addLog(msg, 'error');
+                alert(msg);
+                return;
+            }
+
+            addLog("Meminta lokasi GPS...", 'info');
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    
+                    latInput.value = lat;
+                    lonInput.value = lon;
+                    
+                    addLog(`Lokasi GPS didapatkan: ${lat.toFixed(4)}, ${lon.toFixed(4)}`, 'info');
+                },
+                (error) => {
+                    const msg = `Gagal mendapatkan lokasi: ${error.message}`;
+                    addLog(msg, 'error');
+                }
+            );
+        });
+
+        // Event listener untuk tombol Kirim Lokasi
+        sendBtn.addEventListener('click', () => {
+            const lat = parseFloat(latInput.value);
+            const lon = parseFloat(lonInput.value);
+
+            if (isNaN(lat) || isNaN(lon)) {
+                addLog('Input Lat/Lon tidak valid.', 'error');
+                alert('Latitude dan Longitude harus diisi dengan angka yang valid.');
+                return;
+            }
+
+            const payload = {
+                token: "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6IlNhbnRvc29AZXhhbXBsZS5jb20iLCJyb3V0ZSI6IjA1IiwiaWQiOjksImlhdCI6MTc1MDA5OTk5MywiZXhwIjoxNzUyNjkxOTkzfQ.1Sq3SQCybrd42OyShklqyDni5W83RlnpX9kljINLPLztFrPZyK8Ksmou_sp6WLOl", 
+                isFull: false, 
+                location: { lat: lat, long: lon }
+            };
+
+            socket.emit('driver/location', payload);
+            addLog(`Mengirim lokasi: Lat=${lat.toFixed(4)}, Lon=${lon.toFixed(4)}`, 'sent');
+        });
+
+    </script>
+</body>
+</html>
